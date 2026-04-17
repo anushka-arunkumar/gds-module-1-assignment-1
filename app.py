@@ -17,15 +17,20 @@ bq_client = bigquery.Client()
 @app.route("/", methods = ["POST"])
 def receive_data():
 
-    data = request.get_json(silent = True)
-    if not data:
-        return {"error": "invalid request"}, 400
+    try:
+        data = request.get_json(silent = True)
+        if not data:
+            return {"error": "invalid request"}, 400
     
-    validation_result = validate(data)
-    if validation_result["is_valid"]:
-        transformed_data = transform(data)
-        return load_to_bq(transformed_data)
-    return {"error": validation_result["error"]}, 400
+        validation_result = validate(data)
+        if validation_result["is_valid"]:
+            transformed_data = transform(data)
+            return load_to_bq(transformed_data)
+        return {"error": validation_result["error"]}, 400
+    except Exception as e:
+        logging.exception("Unexpected error occurred")
+        return {"error": "internal server error"}, 500
+    
 
 def validate(data):
     
@@ -83,16 +88,20 @@ def transform(data):
 
 def load_to_bq(transformed_data):
 
-    PROJECT_ID = os.getenv("PROJECT_ID")
-    DATASET = os.getenv("DATASET")
-    TABLE = os.getenv("TABLE")
-    table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-    rows_to_insert = [transformed_data]
-    errors = bq_client.insert_rows_json(table_id, rows_to_insert)
+    try:
+        PROJECT_ID = os.getenv("PROJECT_ID")
+        DATASET = os.getenv("DATASET")
+        TABLE = os.getenv("TABLE")
+        table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+        rows_to_insert = [transformed_data]
+        errors = bq_client.insert_rows_json(table_id, rows_to_insert)
 
-    if errors:
-        return {"error": errors}, 500
-    return {"message": "Data inserted successfully", "data": transformed_data}, 200
+        if errors:
+            return {"error": errors}, 500
+        return {"message": "Data inserted successfully", "data": transformed_data}, 200
+    except Exception as e:
+        logging.exception("BigQuery insert failed")
+        return {"error": "BigQuery insert failed"}, 500
 
 
 if __name__ == "__main__":
