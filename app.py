@@ -10,6 +10,7 @@ from google.cloud import bigquery
 import re
 import os
 import logging
+import time
 
 app = Flask(__name__)
 bq_client = bigquery.Client()
@@ -25,10 +26,10 @@ def receive_data():
         validation_result = validate(data)
         if validation_result["is_valid"]:
             transformed_data = transform(data)
-            return load_to_bq(transformed_data)
+            return load(transformed_data)
         return {"error": validation_result["error"]}, 400
     except Exception as e:
-        logging.exception("Unexpected error occurred")
+        logging.exception("unexpected error occurred")
         return {"error": "internal server error"}, 500
     
 
@@ -86,23 +87,37 @@ def transform(data):
     logging.info(f"Processed transaction: {transformed_data}")
     return transformed_data
 
-def load_to_bq(transformed_data):
+def load(transformed_data):
+
+    PROJECT_ID = os.getenv("PROJECT_ID")
+    DATASET = os.getenv("DATASET")
+    TABLE = os.getenv("TABLE")
+    table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
+    rows_to_insert = [transformed_data]
+    total_attempts = 3
 
     try:
-        PROJECT_ID = os.getenv("PROJECT_ID")
-        DATASET = os.getenv("DATASET")
-        TABLE = os.getenv("TABLE")
-        table_id = f"{PROJECT_ID}.{DATASET}.{TABLE}"
-        rows_to_insert = [transformed_data]
-        errors = bq_client.insert_rows_json(table_id, rows_to_insert)
+        for attempt in range(total_attempts):
+            errors = load_to_bq(table_id, rows_to_insert)
+        
+            if not errors:
+                logging.info(f"Success on attempt {attempt+1}")
+                return {"message": "Data inserted successfully", "data": transformed_data}, 200
 
-        if errors:
-            return {"error": errors}, 500
-        return {"message": "Data inserted successfully", "data": transformed_data}, 200
-    except Exception as e:
-        logging.exception("BigQuery insert failed")
+            logging.warning(f"Attempt {attempt+1} failed: {errors}")
+            
+            if attempt < total_attempts - 1:
+                time.sleep(2)
+
+        raise Exception("All attempts failed")
+    
+    except Exception:
+        logging.exception(f"BigQuery insert failed after {total_attempts} attempts")
         return {"error": "BigQuery insert failed"}, 500
+  
+def load_to_bq(table_id, rows_to_insert):
 
+    return bq_client.insert_rows_json(table_id, rows_to_insert)
 
 if __name__ == "__main__":
     app.run(host = "0.0.0.0", port = 8080)
