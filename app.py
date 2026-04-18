@@ -146,3 +146,6 @@ def load(transformed_data, table_ref):
 def load_to_bq(table_id, rows_to_insert):
 
     return bq_client.insert_rows_json(table_id, rows_to_insert)
+
+if __name__ == "__main__":
+    app.run(host = "0.0.0.0", port = 8080)
